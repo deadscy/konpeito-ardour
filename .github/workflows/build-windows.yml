@@ -41,6 +41,11 @@
 #    transaction -> KHÔNG gói nào được cài -> mất gcc. Đây mới là lý do các
 #    vòng 2-3 báo thiếu compiler. Retry pacman tối đa 3 lần +
 #    --disable-download-timeout.
+#  - v8 (2026-10-12): FIX từ log vòng 5 — configure đã tìm thấy gcc/boost/
+#    libwebsockets/exchndl.h nhưng fail ở `lv2 >= 1.2.0`. Quét toàn bộ wscript
+#    thấy 5 check mandatory trong libs/ardour/wscript: lv2, serd-0, sord-0,
+#    sratom-0, lilv-0 -> thêm cả 5 gói ucrt64 một lần (đã verify tồn tại).
+#    libltc KHÔNG cần (chỉ check khi USE_EXTERNAL_LIBS); libaaf là dead code.
 #
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
@@ -119,7 +124,12 @@ jobs:
               mingw-w64-ucrt-x86_64-hidapi \
               mingw-w64-ucrt-x86_64-libwebsockets \
               mingw-w64-ucrt-x86_64-drmingw \
-              mingw-w64-ucrt-x86_64-boost; then
+              mingw-w64-ucrt-x86_64-boost \
+              mingw-w64-ucrt-x86_64-lv2 \
+              mingw-w64-ucrt-x86_64-serd \
+              mingw-w64-ucrt-x86_64-sord \
+              mingw-w64-ucrt-x86_64-sratom \
+              mingw-w64-ucrt-x86_64-lilv; then
               break
             fi
             echo "WARNING: pacman attempt $attempt failed, retrying in 15s..."
