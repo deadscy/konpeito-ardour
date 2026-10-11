@@ -1,27 +1,34 @@
-# CI build Konpeito Ardour cho Windows (x86_64)
+# CI build Konpeito Ardour cho Windows (x86_64, UCRT64)
 #
 # Mỗi lần push lên main (hoặc bấm Run workflow thủ công), GitHub Actions sẽ:
-#   1. dựng môi trường MSYS2/MinGW64 trên windows-latest
-#   2. cài toolchain + toàn bộ thư viện Ardour cần
+#   1. dựng môi trường MSYS2/UCRT64 trên windows-latest
+#   2. cài toolchain + toàn bộ thư viện Ardour cần (pacman, step riêng để log rõ)
 #   3. ./waf configure --dist-target=mingw && ./waf
 #   4. ./waf install vào thư mục staging rồi nén thành zip portable
 #   5. upload zip lên Artifacts (tab Actions) để tải về
 #
-# LƯU Ý (những điểm chưa chắc chắn, sẽ iterate khi CI chạy lần đầu):
-#  - Danh sách package MSYS2 được suy ra từ các check_pkg() trong wscript và
-#    các wscript con (libs/*/wscript). Tên package thực tế trên MSYS2 có thể
-#    lệch đôi chút (ví dụ vamp-plugin-sdk, aubio) -> xem log pacman nếu lỗi.
+# LỊCH SỬ SỬA:
+#  - v2 (2026-10-12): migrate MINGW64 -> UCRT64 (MINGW64 deprecated từ
+#    setup-msys2 v2.33.0; warning trong lần chạy đầu). Toàn bộ package pacman
+#    đổi prefix mingw-w64-x86_64- -> mingw-w64-ucrt-x86_64-; 10 package đáng ngờ
+#    (vamp-plugin-sdk, aubio, drmingw, libwebsockets, rubberband, fftw,
+#    fluidsynth, portaudio, hidapi, libusb) đã verify tồn tại bản ucrt64 trên
+#    packages.msys2.org. actions/checkout v4->v5, upload-artifact v4->v5
+#    (Node 20 deprecated); setup-msys2 giữ @v2 (đã là node24). Tách step pacman
+#    riêng + set -x để log rõ package nào lỗi; upload build/config.log khi fail.
+#  - v3 (2026-10-12): FIX QUAN TRỌNG từ log lỗi thật — waf trên Windows tự ưu
+#    tiên phát hiện MSVC (CL.exe của Visual Studio trên runner) trước MinGW,
+#    khiến check boost fail. Ép compiler bằng export CC=gcc / CXX=g++ trong
+#    step configure và build.
+#
+# ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
-#    gtkmm hệ thống; nhưng cairo/cairomm/pango/pangomm/libpng/fontconfig vẫn
-#    cần -> đã cho vào danh sách, thừa còn hơn thiếu ở lần build đầu.
-#  - drmingw: wscript bắt buộc (mandatory=True) khi dist-target=mingw trừ khi
-#    truyền --no-dr-mingw. MSYS2 có gói mingw-w64-x86_64-drmingw; nếu configure
-#    vẫn báo thiếu exchndl.h thì thêm --no-dr-mingw vào lệnh configure.
-#  - Chưa bật ccache: mỗi lần push build lại từ đầu (~30-60+ phút). Khi workflow
-#    đã xanh, có thể thêm cache cho thư mục build/ để iterate nhanh hơn.
-#  - Bản zip này là portable (chưa phải installer NSIS). Đủ để chạy thử và
-#    iterate patch; làm installer NSIS ở phase đóng gói sau.
-#  - Chưa code-sign: Windows SmartScreen sẽ cảnh báo khi chạy file .exe.
+#    gtkmm hệ thống; cairo/cairomm/pango/pangomm/libpng/fontconfig vẫn cần.
+#  - drmingw: wscript bắt buộc exchndl.h khi --dist-target=mingw trừ khi truyền
+#    --no-dr-mingw. Nếu configure vẫn báo thiếu -> thêm --no-dr-mingw.
+#  - Zip portable chưa gom DLL runtime MinGW (libgcc, libwinpthread...). Nếu exe
+#    không khởi động được -> bước tiếp theo dùng ntldd/ldd gom DLL vào bin/.
+#  - Chưa bật ccache; chưa code-sign (SmartScreen sẽ cảnh báo khi chạy .exe).
 
 name: Build Windows (Konpeito Ardour)
 
@@ -40,72 +47,105 @@ jobs:
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Setup MSYS2 (mingw64)
+      - name: Setup MSYS2 (UCRT64)
         uses: msys2/setup-msys2@v2
         with:
-          msystem: mingw64
+          msystem: UCRT64
           update: true
           install: >-
             base-devel
             git
             zip
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-python
-            mingw-w64-x86_64-pkgconf
-            mingw-w64-x86_64-glib2
-            mingw-w64-x86_64-glibmm
-            mingw-w64-x86_64-cairo
-            mingw-w64-x86_64-cairomm
-            mingw-w64-x86_64-pango
-            mingw-w64-x86_64-pangomm
-            mingw-w64-x86_64-atk
-            mingw-w64-x86_64-fontconfig
-            mingw-w64-x86_64-libpng
-            mingw-w64-x86_64-libxml2
-            mingw-w64-x86_64-gettext
-            mingw-w64-x86_64-libsndfile
-            mingw-w64-x86_64-flac
-            mingw-w64-x86_64-curl
-            mingw-w64-x86_64-libarchive
-            mingw-w64-x86_64-liblo
-            mingw-w64-x86_64-taglib
-            mingw-w64-x86_64-vamp-plugin-sdk
-            mingw-w64-x86_64-rubberband
-            mingw-w64-x86_64-fftw
-            mingw-w64-x86_64-aubio
-            mingw-w64-x86_64-fluidsynth
-            mingw-w64-x86_64-portaudio
-            mingw-w64-x86_64-libusb
-            mingw-w64-x86_64-hidapi
-            mingw-w64-x86_64-libwebsockets
-            mingw-w64-x86_64-drmingw
-            mingw-w64-x86_64-boost
+
+      - name: Install build dependencies (pacman)
+        run: |
+          set -x
+          pacman -S --needed --noconfirm \
+            mingw-w64-ucrt-x86_64-toolchain \
+            mingw-w64-ucrt-x86_64-python \
+            mingw-w64-ucrt-x86_64-pkgconf \
+            mingw-w64-ucrt-x86_64-glib2 \
+            mingw-w64-ucrt-x86_64-glibmm \
+            mingw-w64-ucrt-x86_64-cairo \
+            mingw-w64-ucrt-x86_64-cairomm \
+            mingw-w64-ucrt-x86_64-pango \
+            mingw-w64-ucrt-x86_64-pangomm \
+            mingw-w64-ucrt-x86_64-atk \
+            mingw-w64-ucrt-x86_64-fontconfig \
+            mingw-w64-ucrt-x86_64-libpng \
+            mingw-w64-ucrt-x86_64-libxml2 \
+            mingw-w64-ucrt-x86_64-gettext \
+            mingw-w64-ucrt-x86_64-libsndfile \
+            mingw-w64-ucrt-x86_64-flac \
+            mingw-w64-ucrt-x86_64-curl \
+            mingw-w64-ucrt-x86_64-libarchive \
+            mingw-w64-ucrt-x86_64-liblo \
+            mingw-w64-ucrt-x86_64-taglib \
+            mingw-w64-ucrt-x86_64-vamp-plugin-sdk \
+            mingw-w64-ucrt-x86_64-rubberband \
+            mingw-w64-ucrt-x86_64-fftw \
+            mingw-w64-ucrt-x86_64-aubio \
+            mingw-w64-ucrt-x86_64-fluidsynth \
+            mingw-w64-ucrt-x86_64-portaudio \
+            mingw-w64-ucrt-x86_64-libusb \
+            mingw-w64-ucrt-x86_64-hidapi \
+            mingw-w64-ucrt-x86_64-libwebsockets \
+            mingw-w64-ucrt-x86_64-drmingw \
+            mingw-w64-ucrt-x86_64-boost
+
+      - name: Show toolchain versions
+        run: |
+          set -x
+          gcc --version | head -1
+          python3 --version
+          pkg-config --version
+          pacman -Q mingw-w64-ucrt-x86_64-libwebsockets mingw-w64-ucrt-x86_64-drmingw
 
       - name: Configure (waf, mingw target)
         run: |
+          set -x
+          # BẮT BUỘC: ép waf dùng MinGW GCC. Nếu không, waf trên Windows sẽ
+          # tự phát hiện MSVC (Visual Studio cài sẵn trên runner) trước và
+          # dùng CL.exe -> check boost và nhiều check khác fail theo.
+          export CC=gcc
+          export CXX=g++
           python3 ./waf configure \
             --dist-target=mingw \
             --program-name=KonpeitoArdour \
             --prefix=/
 
       - name: Build
-        run: python3 ./waf -j$(nproc)
+        run: |
+          set -x
+          export CC=gcc
+          export CXX=g++
+          python3 ./waf -j$(nproc)
 
       - name: Install to staging dir
         run: |
+          set -x
           rm -rf stage
           python3 ./waf install --destdir="$PWD/stage"
 
       - name: Zip portable package
         run: |
+          set -x
           cd stage
           zip -qr ../KonpeitoArdour-Windows.zip .
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: KonpeitoArdour-Windows
           path: KonpeitoArdour-Windows.zip
           if-no-files-found: error
+
+      - name: Upload waf config.log on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: waf-config-log
+          path: build/config.log
+          if-no-files-found: warn
