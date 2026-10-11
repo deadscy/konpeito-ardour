@@ -54,6 +54,9 @@
 #  - v10 (2026-10-12): FIX từ log vòng 7 — tag nhẹ không đủ: `git describe`
 #    (wscript gọi không có --tags) chỉ nhận annotated tag. Đổi thành
 #    `git tag -a 8.12 -m "KonpeitoArdour 8.12".
+#  - v11 (2026-10-12): FIX từ log vòng 8 — runner chưa có danh tính git nên
+#    không tạo được annotated tag ("Committer identity unknown"). Thêm
+#    `git config user.email/name` tạm trước khi tag.
 #
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
@@ -170,6 +173,9 @@ jobs:
           # Tag HEAD để version parse được (codebase dòng Ardour 8.x).
           # Phải là annotated tag (-a): `git describe` (wscript gọi đúng kiểu
           # này, không có --tags) chỉ nhận annotated tag, tag nhẹ bị bỏ qua.
+          # Runner chưa có danh tính git -> config tạm để tạo được tag.
+          git config user.email "ci@konpeito-ardour.local"
+          git config user.name "KonpeitoArdour CI"
           git tag -a 8.12 -m "KonpeitoArdour 8.12"
           git describe HEAD
 
