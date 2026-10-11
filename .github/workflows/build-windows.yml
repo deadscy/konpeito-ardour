@@ -20,6 +20,17 @@
 #    tiên phát hiện MSVC (CL.exe của Visual Studio trên runner) trước MinGW,
 #    khiến check boost fail. Ép compiler bằng export CC=gcc / CXX=g++ trong
 #    step configure và build.
+#  - v4 (2026-10-12): FIX từ log vòng 2 — shell `msys2 {0}` KHÔNG có `-e`,
+#    nên step "Show toolchain versions" với `gcc --version | head -1` đã pass
+#    giả (pipe che lỗi, bash không dừng) trong khi gcc thật sự không tồn tại.
+#    Thêm `set -euo pipefail` vào mọi run step để lỗi nào fail ngay ở đó,
+#    lần chạy tới sẽ thấy đúng chỗ gãy đầu tiên (nghi nhất: pacman install).
+#  - v5 (2026-10-12): FIX từ chẩn đoán vòng 2 — `export CC=gcc` KHÔNG có tác
+#    dụng với waf: trên win32 waf luôn thử msvc -> gcc -> clang theo thứ tự
+#    cứng, bỏ qua biến môi trường CC/CXX (verify trực tiếp trên source waf
+#    2.0.26: compiler_c.py dùng conf.options.check_c_compiler). Ép đúng cách
+#    bằng --check-c-compiler=gcc --check-cxx-compiler=g++. Thêm command -v
+#    vào step toolchain để thiếu là fail ngay, đúng chỗ.
 #
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
@@ -62,6 +73,7 @@ jobs:
       - name: Install build dependencies (pacman)
         run: |
           set -x
+          set -euo pipefail
           pacman -S --needed --noconfirm \
             mingw-w64-ucrt-x86_64-toolchain \
             mingw-w64-ucrt-x86_64-python \
@@ -98,6 +110,14 @@ jobs:
       - name: Show toolchain versions
         run: |
           set -x
+          set -euo pipefail
+          # Fail nhanh, đúng chỗ nếu toolchain thiếu (command -v không bị
+          # pipe che như `gcc --version | head -1`).
+          command -v gcc
+          command -v g++
+          command -v windres
+          command -v pkg-config
+          command -v python3
           gcc --version | head -1
           python3 --version
           pkg-config --version
@@ -106,12 +126,18 @@ jobs:
       - name: Configure (waf, mingw target)
         run: |
           set -x
-          # BẮT BUỘC: ép waf dùng MinGW GCC. Nếu không, waf trên Windows sẽ
-          # tự phát hiện MSVC (Visual Studio cài sẵn trên runner) trước và
-          # dùng CL.exe -> check boost và nhiều check khác fail theo.
+          set -euo pipefail
+          # BẮT BUỘC: ép waf dùng MinGW GCC bằng flag --check-c-compiler /
+          # --check-cxx-compiler. waf trên win32 luôn thử theo thứ tự
+          # msvc -> gcc -> clang và BỎ QUA biến môi trường CC/CXX khi chọn
+          # compiler (đã verify trên source waf 2.0.26: compiler_c.py dùng
+          # conf.options.check_c_compiler, default theo platform). export
+          # CC/CXX giữ lại cho chắc nhưng flag mới là cái quyết định.
           export CC=gcc
           export CXX=g++
           python3 ./waf configure \
+            --check-c-compiler=gcc \
+            --check-cxx-compiler=g++ \
             --dist-target=mingw \
             --program-name=KonpeitoArdour \
             --prefix=/
@@ -119,6 +145,7 @@ jobs:
       - name: Build
         run: |
           set -x
+          set -euo pipefail
           export CC=gcc
           export CXX=g++
           python3 ./waf -j$(nproc)
@@ -126,12 +153,14 @@ jobs:
       - name: Install to staging dir
         run: |
           set -x
+          set -euo pipefail
           rm -rf stage
           python3 ./waf install --destdir="$PWD/stage"
 
       - name: Zip portable package
         run: |
           set -x
+          set -euo pipefail
           cd stage
           zip -qr ../KonpeitoArdour-Windows.zip .
 
