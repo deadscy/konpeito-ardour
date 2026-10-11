@@ -68,6 +68,10 @@
 #    link fail `cannot find -ljack64` ở task portaudio_callback_backend:
 #    wscript link cứng jack64 trên mingw. Thêm gói mingw-w64-ucrt-x86_64-jack2
 #    (đã verify tồn tại + có jack64.dll.a).
+#  - v15 (2026-10-12): FIX từ log vòng 12 — task 'ardour-8.12.0' (link exe
+#    chính) fail mà waf không in lỗi gì. Thêm step 'Retry failed task
+#    verbosely' (chỉ chạy khi fail): chạy lại `waf -j1 -v`, incremental nên
+#    chỉ làm lại task fail, -v để thấy full lệnh + lỗi thật trong log.
 #
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
@@ -219,6 +223,17 @@ jobs:
           # build fail ở vòng sau sẽ có file log để tải về đọc lỗi chính xác.
           # pipefail đã bật nên waf fail -> step fail như thường.
           python3 ./waf -j$(nproc) 2>&1 | tee build/build.log
+
+      - name: Retry failed task verbosely
+        if: failure()
+        run: |
+          set -x
+          set -euo pipefail
+          # waf nuốt output của task fail (vòng 12: task 'ardour-8.12.0' fail
+          # mà không in lỗi gì). waf có tính incremental nên chạy lại chỉ làm
+          # lại task fail, với -v để thấy full lệnh link + lỗi thật.
+          # || true để step này không che mất trạng thái fail của step Build.
+          python3 ./waf -j1 -v 2>&1 | tee -a build/build.log || true
 
       - name: Install to staging dir
         run: |
