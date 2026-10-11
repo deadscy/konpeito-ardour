@@ -31,6 +31,11 @@
 #    2.0.26: compiler_c.py dùng conf.options.check_c_compiler). Ép đúng cách
 #    bằng --check-c-compiler=gcc --check-cxx-compiler=g++. Thêm command -v
 #    vào step toolchain để thiếu là fail ngay, đúng chỗ.
+#  - v6 (2026-10-12): FIX từ log vòng 3 — XOÁ export CC=gcc / CXX=g++.
+#    waf find_program() thấy $CC thì dùng luôn chuỗi đó làm path, mà
+#    check_exe() trên win32 không tự thêm .exe -> "Checking for 'gcc'
+#    (C compiler): not found" dù gcc.exe có trong PATH (verify trên source
+#    waf 2.0.26: Configure.py find_program + Utils.check_exe).
 #
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
@@ -127,14 +132,12 @@ jobs:
         run: |
           set -x
           set -euo pipefail
-          # BẮT BUỘC: ép waf dùng MinGW GCC bằng flag --check-c-compiler /
-          # --check-cxx-compiler. waf trên win32 luôn thử theo thứ tự
-          # msvc -> gcc -> clang và BỎ QUA biến môi trường CC/CXX khi chọn
-          # compiler (đã verify trên source waf 2.0.26: compiler_c.py dùng
-          # conf.options.check_c_compiler, default theo platform). export
-          # CC/CXX giữ lại cho chắc nhưng flag mới là cái quyết định.
-          export CC=gcc
-          export CXX=g++
+          # Ép waf dùng MinGW GCC bằng flag --check-c-compiler /
+          # --check-cxx-compiler (waf trên win32 thử msvc -> gcc -> clang,
+          # bỏ qua env khi chọn compiler — verify trên source waf 2.0.26).
+          # TUYỆT ĐỐI KHÔNG export CC=gcc / CXX=g++: waf find_program() thấy
+          # $CC thì dùng luôn chuỗi đó làm path, mà check_exe() trên win32
+          # KHÔNG tự thêm .exe -> "not found" dù gcc.exe có trong PATH.
           python3 ./waf configure \
             --check-c-compiler=gcc \
             --check-cxx-compiler=g++ \
@@ -146,8 +149,7 @@ jobs:
         run: |
           set -x
           set -euo pipefail
-          export CC=gcc
-          export CXX=g++
+          # Không export CC/CXX ở đây (xem chú thích ở step Configure).
           python3 ./waf -j$(nproc)
 
       - name: Install to staging dir
