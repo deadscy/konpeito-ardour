@@ -1,0 +1,111 @@
+# CI build Konpeito Ardour cho Windows (x86_64)
+#
+# Mỗi lần push lên main (hoặc bấm Run workflow thủ công), GitHub Actions sẽ:
+#   1. dựng môi trường MSYS2/MinGW64 trên windows-latest
+#   2. cài toolchain + toàn bộ thư viện Ardour cần
+#   3. ./waf configure --dist-target=mingw && ./waf
+#   4. ./waf install vào thư mục staging rồi nén thành zip portable
+#   5. upload zip lên Artifacts (tab Actions) để tải về
+#
+# LƯU Ý (những điểm chưa chắc chắn, sẽ iterate khi CI chạy lần đầu):
+#  - Danh sách package MSYS2 được suy ra từ các check_pkg() trong wscript và
+#    các wscript con (libs/*/wscript). Tên package thực tế trên MSYS2 có thể
+#    lệch đôi chút (ví dụ vamp-plugin-sdk, aubio) -> xem log pacman nếu lỗi.
+#  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
+#    gtkmm hệ thống; nhưng cairo/cairomm/pango/pangomm/libpng/fontconfig vẫn
+#    cần -> đã cho vào danh sách, thừa còn hơn thiếu ở lần build đầu.
+#  - drmingw: wscript bắt buộc (mandatory=True) khi dist-target=mingw trừ khi
+#    truyền --no-dr-mingw. MSYS2 có gói mingw-w64-x86_64-drmingw; nếu configure
+#    vẫn báo thiếu exchndl.h thì thêm --no-dr-mingw vào lệnh configure.
+#  - Chưa bật ccache: mỗi lần push build lại từ đầu (~30-60+ phút). Khi workflow
+#    đã xanh, có thể thêm cache cho thư mục build/ để iterate nhanh hơn.
+#  - Bản zip này là portable (chưa phải installer NSIS). Đủ để chạy thử và
+#    iterate patch; làm installer NSIS ở phase đóng gói sau.
+#  - Chưa code-sign: Windows SmartScreen sẽ cảnh báo khi chạy file .exe.
+
+name: Build Windows (Konpeito Ardour)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2 (mingw64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: mingw64
+          update: true
+          install: >-
+            base-devel
+            git
+            zip
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-glib2
+            mingw-w64-x86_64-glibmm
+            mingw-w64-x86_64-cairo
+            mingw-w64-x86_64-cairomm
+            mingw-w64-x86_64-pango
+            mingw-w64-x86_64-pangomm
+            mingw-w64-x86_64-atk
+            mingw-w64-x86_64-fontconfig
+            mingw-w64-x86_64-libpng
+            mingw-w64-x86_64-libxml2
+            mingw-w64-x86_64-gettext
+            mingw-w64-x86_64-libsndfile
+            mingw-w64-x86_64-flac
+            mingw-w64-x86_64-curl
+            mingw-w64-x86_64-libarchive
+            mingw-w64-x86_64-liblo
+            mingw-w64-x86_64-taglib
+            mingw-w64-x86_64-vamp-plugin-sdk
+            mingw-w64-x86_64-rubberband
+            mingw-w64-x86_64-fftw
+            mingw-w64-x86_64-aubio
+            mingw-w64-x86_64-fluidsynth
+            mingw-w64-x86_64-portaudio
+            mingw-w64-x86_64-libusb
+            mingw-w64-x86_64-hidapi
+            mingw-w64-x86_64-libwebsockets
+            mingw-w64-x86_64-drmingw
+            mingw-w64-x86_64-boost
+
+      - name: Configure (waf, mingw target)
+        run: |
+          python3 ./waf configure \
+            --dist-target=mingw \
+            --program-name=KonpeitoArdour \
+            --prefix=/
+
+      - name: Build
+        run: python3 ./waf -j$(nproc)
+
+      - name: Install to staging dir
+        run: |
+          rm -rf stage
+          python3 ./waf install --destdir="$PWD/stage"
+
+      - name: Zip portable package
+        run: |
+          cd stage
+          zip -qr ../KonpeitoArdour-Windows.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KonpeitoArdour-Windows
+          path: KonpeitoArdour-Windows.zip
+          if-no-files-found: error
