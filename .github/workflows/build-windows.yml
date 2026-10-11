@@ -36,6 +36,11 @@
 #    check_exe() trên win32 không tự thêm .exe -> "Checking for 'gcc'
 #    (C compiler): not found" dù gcc.exe có trong PATH (verify trên source
 #    waf 2.0.26: Configure.py find_program + Utils.check_exe).
+#  - v7 (2026-10-12): FIX từ log vòng 4 — bệnh gốc thật: pacman bị rớt mạng
+#    giữa chừng ở mirror ftp2.osuosl.org ("Operation too slow") -> huỷ cả
+#    transaction -> KHÔNG gói nào được cài -> mất gcc. Đây mới là lý do các
+#    vòng 2-3 báo thiếu compiler. Retry pacman tối đa 3 lần +
+#    --disable-download-timeout.
 #
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
@@ -79,38 +84,47 @@ jobs:
         run: |
           set -x
           set -euo pipefail
-          pacman -S --needed --noconfirm \
-            mingw-w64-ucrt-x86_64-toolchain \
-            mingw-w64-ucrt-x86_64-python \
-            mingw-w64-ucrt-x86_64-pkgconf \
-            mingw-w64-ucrt-x86_64-glib2 \
-            mingw-w64-ucrt-x86_64-glibmm \
-            mingw-w64-ucrt-x86_64-cairo \
-            mingw-w64-ucrt-x86_64-cairomm \
-            mingw-w64-ucrt-x86_64-pango \
-            mingw-w64-ucrt-x86_64-pangomm \
-            mingw-w64-ucrt-x86_64-atk \
-            mingw-w64-ucrt-x86_64-fontconfig \
-            mingw-w64-ucrt-x86_64-libpng \
-            mingw-w64-ucrt-x86_64-libxml2 \
-            mingw-w64-ucrt-x86_64-gettext \
-            mingw-w64-ucrt-x86_64-libsndfile \
-            mingw-w64-ucrt-x86_64-flac \
-            mingw-w64-ucrt-x86_64-curl \
-            mingw-w64-ucrt-x86_64-libarchive \
-            mingw-w64-ucrt-x86_64-liblo \
-            mingw-w64-ucrt-x86_64-taglib \
-            mingw-w64-ucrt-x86_64-vamp-plugin-sdk \
-            mingw-w64-ucrt-x86_64-rubberband \
-            mingw-w64-ucrt-x86_64-fftw \
-            mingw-w64-ucrt-x86_64-aubio \
-            mingw-w64-ucrt-x86_64-fluidsynth \
-            mingw-w64-ucrt-x86_64-portaudio \
-            mingw-w64-ucrt-x86_64-libusb \
-            mingw-w64-ucrt-x86_64-hidapi \
-            mingw-w64-ucrt-x86_64-libwebsockets \
-            mingw-w64-ucrt-x86_64-drmingw \
-            mingw-w64-ucrt-x86_64-boost
+          # Mirror MSYS2 trên runner đôi khi chậm/rớt giữa chừng
+          # ("Operation too slow" -> pacman huỷ cả transaction -> mất toolchain).
+          # Retry tối đa 3 lần + tắt download timeout khó tính.
+          for attempt in 1 2 3; do
+            if pacman -S --needed --noconfirm --disable-download-timeout \
+              mingw-w64-ucrt-x86_64-toolchain \
+              mingw-w64-ucrt-x86_64-python \
+              mingw-w64-ucrt-x86_64-pkgconf \
+              mingw-w64-ucrt-x86_64-glib2 \
+              mingw-w64-ucrt-x86_64-glibmm \
+              mingw-w64-ucrt-x86_64-cairo \
+              mingw-w64-ucrt-x86_64-cairomm \
+              mingw-w64-ucrt-x86_64-pango \
+              mingw-w64-ucrt-x86_64-pangomm \
+              mingw-w64-ucrt-x86_64-atk \
+              mingw-w64-ucrt-x86_64-fontconfig \
+              mingw-w64-ucrt-x86_64-libpng \
+              mingw-w64-ucrt-x86_64-libxml2 \
+              mingw-w64-ucrt-x86_64-gettext \
+              mingw-w64-ucrt-x86_64-libsndfile \
+              mingw-w64-ucrt-x86_64-flac \
+              mingw-w64-ucrt-x86_64-curl \
+              mingw-w64-ucrt-x86_64-libarchive \
+              mingw-w64-ucrt-x86_64-liblo \
+              mingw-w64-ucrt-x86_64-taglib \
+              mingw-w64-ucrt-x86_64-vamp-plugin-sdk \
+              mingw-w64-ucrt-x86_64-rubberband \
+              mingw-w64-ucrt-x86_64-fftw \
+              mingw-w64-ucrt-x86_64-aubio \
+              mingw-w64-ucrt-x86_64-fluidsynth \
+              mingw-w64-ucrt-x86_64-portaudio \
+              mingw-w64-ucrt-x86_64-libusb \
+              mingw-w64-ucrt-x86_64-hidapi \
+              mingw-w64-ucrt-x86_64-libwebsockets \
+              mingw-w64-ucrt-x86_64-drmingw \
+              mingw-w64-ucrt-x86_64-boost; then
+              break
+            fi
+            echo "WARNING: pacman attempt $attempt failed, retrying in 15s..."
+            sleep 15
+          done
 
       - name: Show toolchain versions
         run: |
