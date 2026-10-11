@@ -57,6 +57,11 @@
 #  - v11 (2026-10-12): FIX từ log vòng 8 — runner chưa có danh tính git nên
 #    không tạo được annotated tag ("Committer identity unknown"). Thêm
 #    `git config user.email/name` tạm trước khi tag.
+#  - v12 (2026-10-12): FIX từ chẩn đoán vòng 10 (build fail sau 12 phút, chưa
+#    đọc được log chi tiết): thêm `--cxx17` cho waf configure. Không có flag
+#    này, GCC 16 biên dịch code Ardour 8.x (kỷ nguyên C++17) dưới chuẩn mặc
+#    định gnu++23; ngoài `-std=c++17`, flag này còn bật thêm _USE_MATH_DEFINES
+#    và WIN32 trên mingw (wscript dòng 1235).
 #
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
@@ -192,6 +197,7 @@ jobs:
           python3 ./waf configure \
             --check-c-compiler=gcc \
             --check-cxx-compiler=g++ \
+            --cxx17 \
             --dist-target=mingw \
             --program-name=KonpeitoArdour \
             --prefix=/
