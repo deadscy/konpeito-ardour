@@ -62,6 +62,12 @@
 #    này, GCC 16 biên dịch code Ardour 8.x (kỷ nguyên C++17) dưới chuẩn mặc
 #    định gnu++23; ngoài `-std=c++17`, flag này còn bật thêm _USE_MATH_DEFINES
 #    và WIN32 trên mingw (wscript dòng 1235).
+#  - v13 (2026-10-12): tee output `./waf -j` ra build/build.log, gzip + upload
+#    artifact 'waf-build-log' khi fail (job log không đọc được qua API ẩn danh).
+#  - v14 (2026-10-12): FIX từ log vòng 11 (đọc được nhờ link SAS anh gửi) —
+#    link fail `cannot find -ljack64` ở task portaudio_callback_backend:
+#    wscript link cứng jack64 trên mingw. Thêm gói mingw-w64-ucrt-x86_64-jack2
+#    (đã verify tồn tại + có jack64.dll.a).
 #
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
@@ -145,7 +151,8 @@ jobs:
               mingw-w64-ucrt-x86_64-serd \
               mingw-w64-ucrt-x86_64-sord \
               mingw-w64-ucrt-x86_64-sratom \
-              mingw-w64-ucrt-x86_64-lilv; then
+              mingw-w64-ucrt-x86_64-lilv \
+              mingw-w64-ucrt-x86_64-jack2; then
               break
             fi
             echo "WARNING: pacman attempt $attempt failed, retrying in 15s..."
@@ -207,7 +214,11 @@ jobs:
           set -x
           set -euo pipefail
           # Không export CC/CXX ở đây (xem chú thích ở step Configure).
-          python3 ./waf -j$(nproc)
+          # Ghi toàn bộ output build ra build/build.log: job log trên GitHub
+          # không đọc được qua API ẩn danh (403, cần đăng nhập), nên khi
+          # build fail ở vòng sau sẽ có file log để tải về đọc lỗi chính xác.
+          # pipefail đã bật nên waf fail -> step fail như thường.
+          python3 ./waf -j$(nproc) 2>&1 | tee build/build.log
 
       - name: Install to staging dir
         run: |
@@ -236,4 +247,18 @@ jobs:
         with:
           name: waf-config-log
           path: build/config.log
+          if-no-files-found: warn
+
+      - name: Compress build log on failure
+        if: failure()
+        run: |
+          set -x
+          gzip -9 -f build/build.log || true
+
+      - name: Upload waf build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: waf-build-log
+          path: build/build.log.gz
           if-no-files-found: warn
