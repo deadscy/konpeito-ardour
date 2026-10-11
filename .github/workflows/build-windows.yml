@@ -72,6 +72,11 @@
 #    chính) fail mà waf không in lỗi gì. Thêm step 'Retry failed task
 #    verbosely' (chỉ chạy khi fail): chạy lại `waf -j1 -v`, incremental nên
 #    chỉ làm lại task fail, -v để thấy full lệnh + lỗi thật trong log.
+#  - v16 (2026-10-12): từ kết quả vòng 13 — build song song fail ở task link
+#    cuối nhưng retry serial xong trong ~5p -> nghi flaky do thiếu RAM khi
+#    link song song. Gộp retry vào step Build: song song fail thì tự retry
+#    serial (verbose), chỉ fail job khi serial cũng fail. Xóa step retry rời
+#    (v15) vì `|| true` che mất exit code thật.
 #
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
@@ -216,24 +221,18 @@ jobs:
       - name: Build
         run: |
           set -x
-          set -euo pipefail
-          # Không export CC/CXX ở đây (xem chú thích ở step Configure).
-          # Ghi toàn bộ output build ra build/build.log: job log trên GitHub
-          # không đọc được qua API ẩn danh (403, cần đăng nhập), nên khi
-          # build fail ở vòng sau sẽ có file log để tải về đọc lỗi chính xác.
-          # pipefail đã bật nên waf fail -> step fail như thường.
-          python3 ./waf -j$(nproc) 2>&1 | tee build/build.log
-
-      - name: Retry failed task verbosely
-        if: failure()
-        run: |
-          set -x
-          set -euo pipefail
-          # waf nuốt output của task fail (vòng 12: task 'ardour-8.12.0' fail
-          # mà không in lỗi gì). waf có tính incremental nên chạy lại chỉ làm
-          # lại task fail, với -v để thấy full lệnh link + lỗi thật.
-          # || true để step này không che mất trạng thái fail của step Build.
-          python3 ./waf -j1 -v 2>&1 | tee -a build/build.log || true
+          set -uo pipefail
+          # Vòng 13: build song song (-j4) gãy ở task link cuối 'ardour-8.12.0'
+          # mà không in lỗi gì, nhưng chạy lại serial (-j1 -v) thì xong trong
+          # ~5 phút -> nghi là lỗi flaky của build song song (thiếu RAM khi
+          # link nhiều DLL/exe cùng lúc trên runner 16GB), không phải lỗi code.
+          # Thử song song trước cho nhanh; fail thì tự retry serial, chỉ fail
+          # job khi serial cũng fail. Không dùng `set -e` để `if` bắt được
+          # exit code của waf qua pipefail.
+          if ! python3 ./waf -j$(nproc) 2>&1 | tee build/build.log; then
+            echo 'Parallel build failed -> retrying serially (verbose)'
+            python3 ./waf -j1 -v 2>&1 | tee -a build/build.log
+          fi
 
       - name: Install to staging dir
         run: |
