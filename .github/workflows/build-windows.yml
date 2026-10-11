@@ -46,6 +46,11 @@
 #    thấy 5 check mandatory trong libs/ardour/wscript: lv2, serd-0, sord-0,
 #    sratom-0, lilv-0 -> thêm cả 5 gói ucrt64 một lần (đã verify tồn tại).
 #    libltc KHÔNG cần (chỉ check khi USE_EXTERNAL_LIBS); libaaf là dead code.
+#  - v9 (2026-10-12): FIX từ log vòng 6 — configure crash ValueError ở
+#    gtk2_ardour/wscript: `int(conf.env['MAJOR'])` với MAJOR = chuỗi
+#    "fatal: No names found, cannot describe anything." Vì wscript lấy version
+#    từ `git describe HEAD` mà checkout của Actions không có tag nào.
+#    Thêm step `git tag 8.12` trước configure.
 #
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
@@ -151,6 +156,17 @@ jobs:
           python3 --version
           pkg-config --version
           pacman -Q mingw-w64-ucrt-x86_64-libwebsockets mingw-w64-ucrt-x86_64-drmingw
+
+      - name: Tag HEAD for version detection
+        run: |
+          set -x
+          set -euo pipefail
+          # wscript lấy MAJOR.MINOR từ `git describe HEAD`, mà checkout của
+          # Actions không có tag nào -> describe fail, MAJOR thành chuỗi
+          # "fatal: No names found..." -> crash ValueError ở gtk2_ardour/wscript.
+          # Tag HEAD để version parse được (codebase dòng Ardour 8.x).
+          git tag 8.12
+          git describe HEAD
 
       - name: Configure (waf, mingw target)
         run: |
