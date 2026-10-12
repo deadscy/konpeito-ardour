@@ -269,7 +269,15 @@ jobs:
           set -x
           set -euo pipefail
           rm -rf stage
-          python3 ./waf install --destdir="$PWD/stage"
+          # v20-fix-3: python3 ở đây là bản mingw-w64 (Windows native), không hiểu
+          # đường dẫn POSIX kiểu /d/... Nếu truyền --destdir=/d/... trực tiếp,
+          # waf sẽ cài nhầm chỗ (tạo ra thư mục thừa a/_temp/msys64 trong zip).
+          # Dùng cygpath -w để đưa đường dẫn Windows chuẩn cho waf.
+          STAGE_WIN=$(cygpath -w "$PWD/stage")
+          echo "Stage dir (Windows path): $STAGE_WIN"
+          python3 ./waf install --destdir="$STAGE_WIN"
+          echo "Top-level dirs in stage:"
+          ls stage/
 
       - name: Restructure to upstream layout + branded resources
         run: |
