@@ -283,10 +283,19 @@ jobs:
           # backends detected" + "Cannot find splash screen image file" ->
           # "could not create GUI"). Fix: đưa exe về bin/ như upstream, gom
           # toàn bộ DLL của Ardour vào bin/ cùng exe.
+          # (Không đoán đường dẫn cứng: dùng find vì vị trí install của waf
+          # có thể khác dự kiến.)
+          EXE=$(find stage -name 'ardour-8.12.0.exe' | head -1)
+          test -n "$EXE" || { echo "ERROR: ardour exe not found in stage/"; find stage -maxdepth 3 -type d | head -20; exit 1; }
+          EXEDIR=$(dirname "$EXE")
+          echo "Found exe: $EXE"
           mkdir -p stage/bin
-          ls stage/lib/ardour8/ardour-8.12.0.exe
-          mv stage/lib/ardour8/ardour-8.12.0.exe stage/bin/ardour-8.12.0.exe
-          cp stage/lib/ardour8/*.dll stage/bin/
+          if [ "$EXE" != "stage/bin/ardour-8.12.0.exe" ]; then
+            mv "$EXE" stage/bin/ardour-8.12.0.exe
+          fi
+          if [ "$EXEDIR" != "stage/bin" ]; then
+            cp "$EXEDIR"/*.dll stage/bin/
+          fi
           ls stage/bin/ardour-8.12.0.exe
           # Tài nguyên đặt tên theo PROGRAM_NAME=KonpeitoArdour nhưng repo chỉ
           # có file tên Ardour-* (splash thiếu là FATAL - Splash::instance
