@@ -77,6 +77,12 @@
 #    link song song. Gộp retry vào step Build: song song fail thì tự retry
 #    serial (verbose), chỉ fail job khi serial cũng fail. Xóa step retry rời
 #    (v15) vì `|| true` che mất exit code thật.
+#  - v17 (2026-10-12): FIX từ test thực tế của anh — bản portable chạy báo
+#    thiếu DLL (libglibmm, libglib, libsigc++, libstdc++...): bước đóng gói
+#    chỉ zip output của `waf install` mà không kèm DLL runtime của UCRT64.
+#    Thêm gói mingw-w64-ucrt-x86_64-ntldd + step 'Bundle MSYS2 runtime DLLs':
+#    với mỗi .exe/.dll trong stage/, copy các dependency trong /ucrt64/bin
+#    vào cùng thư mục binary đó.
 #
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
@@ -161,7 +167,8 @@ jobs:
               mingw-w64-ucrt-x86_64-sord \
               mingw-w64-ucrt-x86_64-sratom \
               mingw-w64-ucrt-x86_64-lilv \
-              mingw-w64-ucrt-x86_64-jack2; then
+              mingw-w64-ucrt-x86_64-jack2 \
+              mingw-w64-ucrt-x86_64-ntldd; then
               break
             fi
             echo "WARNING: pacman attempt $attempt failed, retrying in 15s..."
@@ -240,6 +247,41 @@ jobs:
           set -euo pipefail
           rm -rf stage
           python3 ./waf install --destdir="$PWD/stage"
+
+      - name: Bundle MSYS2 runtime DLLs
+        run: |
+          set -x
+          set -euo pipefail
+          # Bản portable phải mang theo DLL của UCRT64 (glib, stdc++...),
+          # nếu không exe báo "was not found" khi chạy ngoài môi trường MSYS2.
+          # Với mỗi .exe/.dll trong stage/, dùng ntldd liệt kê dependency nằm
+          # trong /ucrt64/bin rồi copy vào cùng thư mục với binary đó (Windows
+          # tìm DLL trước hết ở thư mục của exe đang chạy).
+          python3 - <<'EOF'
+          import os, subprocess, shutil
+          stage = os.path.abspath("stage")
+          ucrt_bin = "/ucrt64/bin"
+          def deps_of(path):
+              out = subprocess.run(["ntldd", "-R", path],
+                                   capture_output=True, text=True).stdout
+              deps = []
+              for line in out.splitlines():
+                  if "=>" in line:
+                      dep = line.split("=>", 1)[1].strip().split()[0].replace("\\", "/")
+                      if dep.lower().startswith(ucrt_bin) and os.path.isfile(dep):
+                          deps.append(dep)
+              return deps
+          total = 0
+          for root, dirs, files in os.walk(stage):
+              for f in files:
+                  if f.lower().endswith((".exe", ".dll")):
+                      for dep in deps_of(os.path.join(root, f)):
+                          dst = os.path.join(root, os.path.basename(dep))
+                          if not os.path.exists(dst):
+                              shutil.copy2(dep, dst)
+                              total += 1
+          print(f"Bundled {total} runtime DLLs")
+          EOF
 
       - name: Zip portable package
         run: |
