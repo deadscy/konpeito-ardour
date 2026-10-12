@@ -283,6 +283,8 @@ jobs:
           # backends detected" + "Cannot find splash screen image file" ->
           # "could not create GUI"). Fix: đưa exe về bin/ như upstream, gom
           # toàn bộ DLL của Ardour vào bin/ cùng exe.
+          mkdir -p stage/bin
+          ls stage/lib/ardour8/ardour-8.12.0.exe
           mv stage/lib/ardour8/ardour-8.12.0.exe stage/bin/ardour-8.12.0.exe
           cp stage/lib/ardour8/*.dll stage/bin/
           ls stage/bin/ardour-8.12.0.exe
