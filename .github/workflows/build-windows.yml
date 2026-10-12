@@ -276,6 +276,14 @@ jobs:
           STAGE_WIN=$(cygpath -w "$PWD/stage")
           echo "Stage dir (Windows path): $STAGE_WIN"
           python3 ./waf install --destdir="$STAGE_WIN"
+          # v20-fix-4: waf trong môi trường MSYS2/mingw-w64 bị lẫn đường dẫn,
+          # cài nhầm vào stage/a/_temp/msys64/ thay vì stage/. Tự động chuyển
+          # về đúng chỗ nếu gặp trường hợp này.
+          if [ -d "stage/a/_temp/msys64" ]; then
+            echo "Fixing mis-installed tree stage/a/_temp/msys64 -> stage/"
+            cp -r stage/a/_temp/msys64/* stage/
+            rm -rf stage/a
+          fi
           echo "Top-level dirs in stage:"
           ls stage/
 
