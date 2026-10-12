@@ -90,6 +90,13 @@
 #    filter startswith("/ucrt64/bin") loại hết. Đổi sang substring "ucrt64/bin",
 #    fail loudly nếu total==0, và verify libglib/libstdc++ nằm cạnh exe chính.
 #
+#  - v19 (2026-10-12): FIX từ log chạy thực tế của anh (vòng 17) — v18 copy
+#    DLL vào MỖI thư mục binary, kể cả surfaces/: Ardour quét mọi .dll ở đó
+#    làm control-surface plugin -> lỗi um sùm + load trùng libglib từ 2 path
+#    -> corrupt GObject ("cannot register existing type") -> GUI không hiện.
+#    Đổi sang: gom UNION tất cả DLL runtime, chỉ copy vào các thư mục chứa
+#    .exe (Windows tìm DLL của plugin ở thư mục exe). Verify thêm libwebsockets.
+#
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
 #    gtkmm hệ thống; cairo/cairomm/pango/pangomm/libpng/fontconfig vẫn cần.
@@ -263,6 +270,12 @@ jobs:
           # Với mỗi .exe/.dll trong stage/, dùng ntldd liệt kê dependency nằm
           # trong /ucrt64/bin rồi copy vào cùng thư mục với binary đó (Windows
           # tìm DLL trước hết ở thư mục của exe đang chạy).
+          # Gom UNION tất cả DLL runtime của mọi binary, chỉ copy vào các thư mục
+          # chứa .exe (Windows tìm DLL của plugin ở thư mục của exe, không phải
+          # thư mục của plugin). KHÔNG rải DLL vào thư mục plugin (surfaces/,
+          # backends/...): Ardour quét mọi .dll ở đó làm plugin -> vừa báo lỗi
+          # um sùm, vừa load trùng libglib từ 2 path -> corrupt GObject type
+          # system -> GUI không hiện (bệnh vòng 17).
           python3 - <<'EOF'
           import os, subprocess, shutil, sys
           stage = os.path.abspath("stage")
@@ -278,24 +291,32 @@ jobs:
                       if "ucrt64/bin" in dep.lower() and os.path.isfile(dep):
                           deps.append(dep)
               return deps
-          total = 0
+          union = set()
+          exe_dirs = set()
           for root, dirs, files in os.walk(stage):
               for f in files:
                   if f.lower().endswith((".exe", ".dll")):
-                      for dep in deps_of(os.path.join(root, f)):
-                          dst = os.path.join(root, os.path.basename(dep))
-                          if not os.path.exists(dst):
-                              shutil.copy2(dep, dst)
-                              total += 1
-          print(f"Bundled {total} runtime DLLs")
-          if total == 0:
-              print("ERROR: no DLLs bundled, aborting", file=sys.stderr)
+                      p = os.path.join(root, f)
+                      union.update(deps_of(p))
+                      if f.lower().endswith(".exe"):
+                          exe_dirs.add(root)
+          print(f"Found {len(union)} unique runtime DLLs, {len(exe_dirs)} exe dirs")
+          if not union:
+              print("ERROR: no DLLs found, aborting", file=sys.stderr)
               sys.exit(1)
+          total = 0
+          for d in sorted(exe_dirs):
+              for dep in sorted(union):
+                  dst = os.path.join(d, os.path.basename(dep))
+                  if not os.path.exists(dst):
+                      shutil.copy2(dep, dst)
+                      total += 1
+          print(f"Bundled {total} DLL copies")
           EOF
           # Kiểm tra chắc chắn: DLL quan trọng phải nằm cạnh exe chính
           EXEDIR=$(dirname "$(find stage -name 'ardour-8.12.0.exe' | head -1)")
           echo "Main exe dir: $EXEDIR"
-          ls "$EXEDIR/libglib-2.0-0.dll" "$EXEDIR/libstdc++-6.dll"
+          ls "$EXEDIR/libglib-2.0-0.dll" "$EXEDIR/libstdc++-6.dll" "$EXEDIR/libwebsockets.dll"
 
       - name: Zip portable package
         run: |
