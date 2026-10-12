@@ -97,6 +97,16 @@
 #    Đổi sang: gom UNION tất cả DLL runtime, chỉ copy vào các thư mục chứa
 #    .exe (Windows tìm DLL của plugin ở thư mục exe). Verify thêm libwebsockets.
 #
+#  - v20 (2026-10-12): FIX gốc rễ từ log vòng 18 — waf install (--prefix=/)
+#    đặt exe ở lib/ardour8/, nhưng code Ardour tính package dir bằng cách
+#    strip thư mục bin/ cuối khỏi path exe (như bản chính thức). Sai package
+#    dir -> sai mọi search path -> "No audio/MIDI backends detected" +
+#    "Cannot find splash screen image file" (cả 2 đều throw failed_constructor
+#    -> "could not create GUI"). Fix: mv exe về stage/bin/ + cp toàn bộ DLL
+#    Ardour vào bin/ (đúng layout upstream). Thêm: copy Ardour-splash.png
+#    thành KonpeitoArdour-splash.png (thiếu là FATAL) và *-ardour.colors
+#    thành *-konpeitoardour.colors (code tìm theo PROGRAM_NAME).
+#
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
 #    gtkmm hệ thống; cairo/cairomm/pango/pangomm/libpng/fontconfig vẫn cần.
@@ -261,6 +271,34 @@ jobs:
           rm -rf stage
           python3 ./waf install --destdir="$PWD/stage"
 
+      - name: Restructure to upstream layout + branded resources
+        run: |
+          set -x
+          set -euo pipefail
+          # v20: code Ardour tính "package dir" từ vị trí exe bằng cách strip
+          # thư mục bin/ cuối (g_win32_get_package_installation_directory).
+          # Bản chính thức đặt exe ở bin/, còn waf install với --prefix=/
+          # đặt exe ở lib/ardour8/ -> package dir sai -> không tìm thấy
+          # backends/, themes/, splash, config (bệnh vòng 18: "No audio/MIDI
+          # backends detected" + "Cannot find splash screen image file" ->
+          # "could not create GUI"). Fix: đưa exe về bin/ như upstream, gom
+          # toàn bộ DLL của Ardour vào bin/ cùng exe.
+          mv stage/lib/ardour8/ardour-8.12.0.exe stage/bin/ardour-8.12.0.exe
+          cp stage/lib/ardour8/*.dll stage/bin/
+          ls stage/bin/ardour-8.12.0.exe
+          # Tài nguyên đặt tên theo PROGRAM_NAME=KonpeitoArdour nhưng repo chỉ
+          # có file tên Ardour-* (splash thiếu là FATAL - Splash::instance
+          # throw failed_constructor). Copy + đổi tên ở khâu đóng gói.
+          mkdir -p stage/share/ardour8/resources stage/share/ardour8/themes
+          cp gtk2_ardour/resources/Ardour-splash.png \
+             stage/share/ardour8/resources/KonpeitoArdour-splash.png
+          for f in gtk2_ardour/themes/*-ardour.colors; do
+            base=$(basename "$f" "-ardour.colors")
+            cp "$f" "stage/share/ardour8/themes/${base}-konpeitoardour.colors"
+          done
+          ls stage/share/ardour8/resources/KonpeitoArdour-splash.png
+          ls stage/share/ardour8/themes/*-konpeitoardour.colors | head -3
+
       - name: Bundle MSYS2 runtime DLLs
         run: |
           set -x
@@ -313,10 +351,11 @@ jobs:
                       total += 1
           print(f"Bundled {total} DLL copies")
           EOF
-          # Kiểm tra chắc chắn: DLL quan trọng phải nằm cạnh exe chính
+          # Kiểm tra chắc chắn: DLL quan trọng phải nằm cạnh exe chính (giờ ở bin/)
           EXEDIR=$(dirname "$(find stage -name 'ardour-8.12.0.exe' | head -1)")
           echo "Main exe dir: $EXEDIR"
           ls "$EXEDIR/libglib-2.0-0.dll" "$EXEDIR/libstdc++-6.dll" "$EXEDIR/libwebsockets.dll"
+          test "$EXEDIR" = "stage/bin" || { echo "ERROR: exe not in stage/bin"; exit 1; }
 
       - name: Zip portable package
         run: |
