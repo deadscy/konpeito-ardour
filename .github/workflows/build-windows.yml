@@ -319,11 +319,21 @@ jobs:
           mkdir -p stage/share/ardour8/resources stage/share/ardour8/themes
           cp gtk2_ardour/resources/Ardour-splash.png \
              stage/share/ardour8/resources/KonpeitoArdour-splash.png
+          # App icons: code tìm KonpeitoArdour-icon_{16,22,32,48}px.png
+          # (get_icon PROGRAM_NAME"-icon_48px" là FATAL nếu thiếu)
+          for sz in 16 22 32 48; do
+            cp "gtk2_ardour/resources/Ardour-icon_${sz}px.png" \
+               "stage/share/ardour8/resources/KonpeitoArdour-icon_${sz}px.png"
+          done
+          # session_dialog tìm KonpeitoArdour-small-splash.png
+          cp gtk2_ardour/resources/Ardour-small-splash.png \
+             stage/share/ardour8/resources/KonpeitoArdour-small-splash.png
           for f in gtk2_ardour/themes/*-ardour.colors; do
             base=$(basename "$f" "-ardour.colors")
             cp "$f" "stage/share/ardour8/themes/${base}-konpeitoardour.colors"
           done
           ls stage/share/ardour8/resources/KonpeitoArdour-splash.png
+          ls stage/share/ardour8/resources/KonpeitoArdour-icon_48px.png
           ls stage/share/ardour8/themes/*-konpeitoardour.colors | head -3
 
       - name: Bundle MSYS2 runtime DLLs
