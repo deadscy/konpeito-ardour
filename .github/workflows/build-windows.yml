@@ -84,6 +84,12 @@
 #    với mỗi .exe/.dll trong stage/, copy các dependency trong /ucrt64/bin
 #    vào cùng thư mục binary đó.
 #
+#  - v18 (2026-10-12): FIX v17 — bundle DLL nhưng artifact vòng 16 vẫn đúng
+#    330.8MB y hệt vòng 15 (không copy được DLL nào): ntldd là chương trình
+#    Windows native nên in đường dẫn dạng D:/a/_temp/msys64/ucrt64/bin/...,
+#    filter startswith("/ucrt64/bin") loại hết. Đổi sang substring "ucrt64/bin",
+#    fail loudly nếu total==0, và verify libglib/libstdc++ nằm cạnh exe chính.
+#
 # ĐIỂM CHƯA CHẮC (sẽ iterate theo log CI):
 #  - ytk/ytkmm (fork GTK của Ardour) nằm sẵn trong libs/tk nên không cần
 #    gtkmm hệ thống; cairo/cairomm/pango/pangomm/libpng/fontconfig vẫn cần.
@@ -258,17 +264,18 @@ jobs:
           # trong /ucrt64/bin rồi copy vào cùng thư mục với binary đó (Windows
           # tìm DLL trước hết ở thư mục của exe đang chạy).
           python3 - <<'EOF'
-          import os, subprocess, shutil
+          import os, subprocess, shutil, sys
           stage = os.path.abspath("stage")
-          ucrt_bin = "/ucrt64/bin"
           def deps_of(path):
               out = subprocess.run(["ntldd", "-R", path],
                                    capture_output=True, text=True).stdout
               deps = []
               for line in out.splitlines():
                   if "=>" in line:
+                      # ntldd (native Windows) in ra đường dẫn dạng
+                      # D:/a/_temp/msys64/ucrt64/bin/..., không phải /ucrt64/bin
                       dep = line.split("=>", 1)[1].strip().split()[0].replace("\\", "/")
-                      if dep.lower().startswith(ucrt_bin) and os.path.isfile(dep):
+                      if "ucrt64/bin" in dep.lower() and os.path.isfile(dep):
                           deps.append(dep)
               return deps
           total = 0
@@ -281,7 +288,14 @@ jobs:
                               shutil.copy2(dep, dst)
                               total += 1
           print(f"Bundled {total} runtime DLLs")
+          if total == 0:
+              print("ERROR: no DLLs bundled, aborting", file=sys.stderr)
+              sys.exit(1)
           EOF
+          # Kiểm tra chắc chắn: DLL quan trọng phải nằm cạnh exe chính
+          EXEDIR=$(dirname "$(find stage -name 'ardour-8.12.0.exe' | head -1)")
+          echo "Main exe dir: $EXEDIR"
+          ls "$EXEDIR/libglib-2.0-0.dll" "$EXEDIR/libstdc++-6.dll"
 
       - name: Zip portable package
         run: |
